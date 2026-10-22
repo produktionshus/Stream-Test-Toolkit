@@ -5,8 +5,8 @@ Testværktøjer til streaming-leverancer (WE ARE ON). PowerShell 5.1 og én HTML
 | Mappe | Værktøj | Formål |
 |---|---|---|
 | `hosttest/` | `hosttest.ps1` | Kan en webhost holde til N seere bag én NAT-IP? Simulerer sideindlæsning + heartbeat fra én maskine og rapporterer 429/5xx/timeouts pr. endpoint |
-| `ams-webrtc-test/` | `stun-test.html` | Browser-side diagnose af WebRTC-vejen til Ant Media: STUN, TCP 5443 websocket, ægte ICE mod en edge, kandidatpar |
-| `ams-webrtc-test/` | `stun-ping.ps1` | STUN Binding Request (UDP) fra kommandolinjen; viser, om UDP til STUN/TURN kommer ud af kundens net |
+| `stun-test/` | `stun-test.html` | Browser-side diagnose af WebRTC-vejen til Ant Media: STUN, TCP 5443 websocket, ægte ICE mod en edge, kandidatpar |
+| `stun-test/` | `stun-ping.ps1` | STUN Binding Request (UDP) fra kommandolinjen; viser, om UDP til STUN/TURN kommer ud af kundens net |
 
 ## hosttest
 
@@ -20,13 +20,13 @@ Parametre: `-Viewers` (500), `-Seconds` (120), `-Heartbeat` sekunder mellem hear
 
 Endpoints: `/?e=<event>`, `/data/config.json`, `/js/app.js`, `/css/styles.css` én gang pr. seer, derefter `POST /admin/presence.php` pr. heartbeat. Fejl rapporteres med det sekund, de faldt i.
 
-## ams-webrtc-test
+## stun-test
 
 `stun-test.html` åbnes i browseren på kundens net (også hostet på weareon.net/stun-test.html). Den tester trinvis: Google STUN (UDP 19302), websocket til edge-poolen (TCP 5443), ICE mod en edge (UDP 5000–65000) og viser de kandidatpar, der blev valgt. Resultatet afgør, om et problem er UDP (firewall/SSE-steering) eller signalering.
 
 ```powershell
-.\ams-webrtc-test\stun-ping.ps1                      # Google STUN
-.\ams-webrtc-test\stun-ping.ps1 turn.weareon.net 5555
+.\stun-test\stun-ping.ps1                      # Google STUN
+.\stun-test\stun-ping.ps1 turn.weareon.net 5555
 ```
 
 Søren Østergaard · Luminance/Dypång Management · weareon.net
