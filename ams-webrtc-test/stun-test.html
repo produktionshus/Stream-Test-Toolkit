@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="da"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>WE ARE ON — netværkstest</title>
+<style>
+body{font:16px/1.5 system-ui,sans-serif;max-width:720px;margin:40px auto;padding:0 16px;color:#0b1a2b}
+h1{font-size:22px}table{border-collapse:collapse;width:100%;margin:16px 0}td{padding:8px 6px;border-bottom:1px solid #ddd;vertical-align:top}
+td:first-child{width:38%;color:#555}.ok{color:#0a7d3a;font-weight:600}.bad{color:#b3261e;font-weight:600}.wait{color:#888}
+code{background:#f2f4f7;padding:1px 5px;border-radius:4px}button{font:inherit;padding:8px 16px}
+</style></head><body>
+<h1>WE ARE ON — netværkstest til livestream</h1>
+<p>Kør testen fra en maskine på firmanettet med VPN som på eventdagen. Tag et skærmbillede af resultatet og send det til WE ARE ON.</p>
+<table>
+<tr><td>Google STUN (<code>stun.l.google.com:19302</code>, UDP)</td><td id="stun" class="wait">tester…</td></tr>
+<tr><td>Din offentlige IP set fra STUN</td><td id="ip" class="wait">–</td></tr>
+<tr><td>Streaming-server, signalering (TCP 5443)</td><td id="sig" class="wait">tester…</td></tr>
+<tr><td>Streaming-server, WebRTC-medie (UDP til 9.205.24.104/29)</td><td id="media" class="wait">tester… (op til 30 s)</td></tr>
+<tr><td>Browser</td><td id="ua"></td></tr>
+<tr><td>ICE-detaljer (til WE ARE ON)</td><td id="ice" style="font-family:monospace;font-size:12px;white-space:pre-wrap"></td></tr>
+</table>
+<p><button onclick="location.reload()">Kør igen</button></p>
+<p id="hint" style="color:#555;font-size:14px"></p>
+<script>
+const $ = (id) => document.getElementById(id);
+const set = (id, cls, txt) => { const e = $(id); e.className = cls; e.textContent = txt; };
+$('ua').textContent = navigator.userAgent;
+
+// 1) STUN: får vi en server-reflexive kandidat fra Google?
+(async () => {
+  const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
+  pc.createDataChannel('t');
+  let srflx = null;
+  pc.onicecandidate = (e) => { if (e.candidate && e.candidate.type === 'srflx') srflx = e.candidate; };
+  await pc.setLocalDescription(await pc.createOffer());
+  await new Promise((r) => { pc.onicegatheringstatechange = () => pc.iceGatheringState === 'complete' && r(); setTimeout(r, 8000); });
+  pc.close();
+  if (srflx) { set('stun', 'ok', 'OK – svar modtaget'); set('ip', 'ok', srflx.address || srflx.ip || srflx.candidate.split(' ')[4]); }
+  else { set('stun', 'bad', 'FEJL – intet svar. UDP 19302 til Google er blokeret (evt. kun via VPN).'); set('ip', 'bad', '–'); }
+})();
+
+// 2) Signalering (TCP 5443) måles på selve websocket-forbindelsen i check() nedenfor.
+
+// 3) Medie: egen WebRTC-forbindelse til en edge via AGW 5443. Lykkes ICE, kommer UDP igennem til /29.
+check();
+async function check() {
+  // Åbn en egen forbindelse til samme server og læs den valgte kandidat.
+  try {
+    const ws = new WebSocket('wss://dk-east.weareon.net:5443/live/websocket');
+    const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
+    let remote = null, done = false, remoteSet = false; const queue = []; const log = [];
+    const addC = (c) => pc.addIceCandidate(c).then(() => log.push('+cand ' + c.candidate.split(' ').slice(4, 8).join(' '))).catch((e) => log.push('!cand ' + e.message + ' :: ' + c.candidate));
+    const finish = async (ok, msg) => {
+      if (done) return; done = true; set('media', ok ? 'ok' : 'bad', msg);
+      try {
+        const st = await pc.getStats(); const lines = [];
+        st.forEach((r) => {
+          if (r.type === 'remote-candidate') lines.push('server: ' + r.address + ':' + r.port + ' ' + r.protocol + ' ' + r.candidateType);
+          if (r.type === 'local-candidate') lines.push('klient: ' + (r.address || '?') + ':' + r.port + ' ' + r.protocol + ' ' + r.candidateType);
+          if (r.type === 'candidate-pair') { const l = st.get(r.localCandidateId), q = st.get(r.remoteCandidateId); lines.push('par: ' + (l && l.address) + ':' + (l && l.port) + ' -> ' + (q && q.address) + ':' + (q && q.port) + ' = ' + r.state + ' (sendt ' + (r.requestsSent || 0) + ', svar ' + (r.responsesReceived || 0) + ')'); }
+        });
+        $('ice').textContent = 'ice=' + pc.iceConnectionState + ' sig=' + pc.signalingState + String.fromCharCode(10) + lines.concat(log).join(String.fromCharCode(10));
+      } catch (e) {}
+      try { ws.close(); pc.close(); } catch (e) {}
+    };
+    ws.onopen = () => { set('sig', 'ok', 'OK – websocket til dk-east.weareon.net:5443 åbnet'); ws.send(JSON.stringify({ command: 'play', streamId: 'companydayCPH' })); };
+    ws.onmessage = async (m) => {
+      const d = JSON.parse(m.data); log.push('ws<- ' + d.command + (d.type ? ' ' + d.type : '') + (d.definition ? ' ' + d.definition : ''));
+      if (d.command === 'takeConfiguration' && d.type === 'offer') {
+        await pc.setRemoteDescription({ type: 'offer', sdp: d.sdp });
+        const ans = await pc.createAnswer(); await pc.setLocalDescription(ans);
+        ws.send(JSON.stringify({ command: 'takeConfiguration', streamId: 'companydayCPH', type: 'answer', sdp: ans.sdp }));
+        remoteSet = true; log.push('sdp-cands-in-offer=' + (d.sdp.match(/a=candidate/g) || []).length); for (const c of queue) addC(c); queue.length = 0;
+      } else if (d.command === 'takeCandidate') {
+        // kandidater kan ankomme før tilbuddet er færdigbehandlet: kø dem (som Ant Medias egen afspiller gør)
+        const c = { candidate: d.candidate, sdpMLineIndex: d.label };
+        if (remoteSet) addC(c); else queue.push(c);
+      } else if (d.command === 'error') {
+        finish(false, 'Streamen "companydayCPH" sendes ikke lige nu (' + d.definition + '). Testen kræver, at der streames.');
+      }
+    };
+    pc.onicecandidate = (e) => e.candidate && ws.send(JSON.stringify({ command: 'takeCandidate', streamId: 'companydayCPH', label: e.candidate.sdpMLineIndex, id: e.candidate.sdpMid, candidate: e.candidate.candidate }));
+    pc.oniceconnectionstatechange = async () => {
+      if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
+        const st = await pc.getStats();
+        st.forEach((r) => { if (r.type === 'candidate-pair' && (r.selected || r.state === 'succeeded') && !remote) remote = st.get(r.remoteCandidateId); });
+        finish(true, 'OK – WebRTC forbundet til ' + (remote ? remote.address + ':' + remote.port + ' (' + remote.protocol + ', ' + remote.candidateType + ')' : 'edge'));
+      } else if (pc.iceConnectionState === 'failed') finish(false, 'FEJL – ICE fejlede. UDP 5000–65000 til 9.205.24.104/29 kommer ikke igennem (split-tunnel mangler UDP?).');
+    };
+    ws.onerror = () => { set('sig', 'bad', 'FEJL – ingen forbindelse til dk-east.weareon.net:5443 (TCP 5443 blokeret?)'); finish(false, 'Ikke testet: signalering fejlede.'); };
+    setTimeout(() => finish(false, 'FEJL – ingen WebRTC-forbindelse inden for 30 s. Typisk: UDP blokeret.'), 30000);
+  } catch (e) { set('media', 'bad', 'FEJL – ' + e.message); }
+}
+$('hint').textContent = 'Grønt hele vejen = klar til eventdagen. Er kun STUN rød, virker streamen typisk alligevel (STUN via VPN er ok). Er medie rød, skal split-tunnelen have UDP.';
+</script>
+</body></html>
