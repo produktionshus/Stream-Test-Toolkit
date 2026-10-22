@@ -1,28 +1,30 @@
 # Stream-Test-Toolkit
 
-Testværktøjer til streaming-leverancer (WE ARE ON). PowerShell 5.1 og én HTML-side, ingen afhængigheder.
+Test tools for live-streaming delivery (WE ARE ON). PowerShell 5.1 and a single HTML page, no dependencies.
 
-| Mappe | Værktøj | Formål |
+| Folder | Tool | Purpose |
 |---|---|---|
-| `hosttest/` | `hosttest.ps1` | Kan en webhost holde til N seere bag én NAT-IP? Simulerer sideindlæsning + heartbeat fra én maskine og rapporterer 429/5xx/timeouts pr. endpoint |
-| `stun-test/` | `stun-test.html` | Browser-side diagnose af WebRTC-vejen til Ant Media: STUN, TCP 5443 websocket, ægte ICE mod en edge, kandidatpar |
-| `stun-test/` | `stun-ping.ps1` | STUN Binding Request (UDP) fra kommandolinjen; viser, om UDP til STUN/TURN kommer ud af kundens net |
+| `hosttest/` | `hosttest.ps1` | Can a web host serve N viewers behind one NAT IP? Simulates page loads + presence heartbeats from a single machine and reports 429/5xx/timeouts per endpoint |
+| `stun-test/` | `stun-test.html` | Browser-side diagnosis of the WebRTC path to Ant Media: STUN, TCP 5443 websocket, real ICE against an edge, selected candidate pairs |
+| `stun-test/` | `stun-ping.ps1` | STUN Binding Request (UDP) from the command line; shows whether UDP to STUN/TURN leaves the customer's network |
 
 ## hosttest
 
 ```powershell
-.\hosttest\hosttest.ps1 https://kandidat-host -Viewers 1000 -Seconds 180 -Heartbeat 30
+.\hosttest\hosttest.ps1 https://candidate-host -Viewers 1000 -Seconds 180 -Heartbeat 30
 ```
 
-Exit 0 = alle svar 200/204. Exit 1 = hosten afviser eller dropper requests fra én IP ved denne last. Kør fra en linje, der ikke selv er bag kundens NAT, og aldrig mod en host, mens et event sender.
+Exit 0 = every response was 200/204. Exit 1 = the host rejected or dropped requests from a single IP at this load. Run it from a line that is not itself behind the customer's NAT, and never against a host while an event is on air.
 
-Parametre: `-Viewers` (500), `-Seconds` (120), `-Heartbeat` sekunder mellem heartbeat-POST pr. seer (30; portalen bruger 120), `-Ramp` sekunder til at starte alle seere (20), `-Event` slug (jndata).
+Parameters: `-Viewers` (500), `-Seconds` (120), `-Heartbeat` seconds between presence POSTs per viewer (30; the portal uses 120), `-Ramp` seconds over which all viewers start (20), `-Event` slug (jndata).
 
-Endpoints: `/?e=<event>`, `/data/config.json`, `/js/app.js`, `/css/styles.css` én gang pr. seer, derefter `POST /admin/presence.php` pr. heartbeat. Fejl rapporteres med det sekund, de faldt i.
+Endpoints: `/?e=<event>`, `/data/config.json`, `/js/app.js`, `/css/styles.css` once per viewer, then `POST /admin/presence.php` per heartbeat. Failures are reported with the second they occurred in.
+
+Background: on 21 October 2026 a shared web host rate-limited ~500 viewers behind one corporate NAT (429, 503, dropped connections). This test reproduces that pattern in 25 seconds and is the acceptance test for any portal host (passed on Azure Static Web Apps with 3000 viewers from one IP).
 
 ## stun-test
 
-`stun-test.html` åbnes i browseren på kundens net (også hostet på weareon.net/stun-test.html). Den tester trinvis: Google STUN (UDP 19302), websocket til edge-poolen (TCP 5443), ICE mod en edge (UDP 5000–65000) og viser de kandidatpar, der blev valgt. Resultatet afgør, om et problem er UDP (firewall/SSE-steering) eller signalering.
+Open `stun-test.html` in a browser on the customer's network (also hosted at weareon.net/stun-test.html). It tests step by step: Google STUN (UDP 19302), websocket to the edge pool (TCP 5443), ICE against an edge (UDP 5000–65000), and lists the candidate pairs that were selected. The result tells whether a problem is UDP (firewall/SSE steering) or signalling.
 
 ```powershell
 .\stun-test\stun-ping.ps1                      # Google STUN
